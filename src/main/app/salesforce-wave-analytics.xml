@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:batch="http://www.mulesoft.org/schema/mule/batch" xmlns:json="http://www.mulesoft.org/schema/mule/json" xmlns:sfdc="http://www.mulesoft.org/schema/mule/sfdc" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking" xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:sfdc-analytics="http://www.mulesoft.org/schema/mule/sfdc-analytics" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/sfdc-analytics http://www.mulesoft.org/schema/mule/sfdc-analytics/current/mule-sfdc-analytics.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/json http://www.mulesoft.org/schema/mule/json/current/mule-json.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd">
+    <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="8081" doc:name="HTTP Listener Configuration"/>
+    <sfdc-analytics:config name="Salesforce_Analytics_Cloud__Basic_authentication" username="${salesforce.username}" password="${salesforce.password}" securityToken="${salesforce.securityToken}" metadataFileName="metadata.json" doc:name="Salesforce Analytics Cloud: Basic authentication" url="${salesforce.url}"/>
+    <file:connector name="File" outputPattern="Test.csv" writeToDirectory="src/main/resources/out" readFromDirectory="src/main/resources/in/flow" autoDelete="false" streaming="true" validateConnections="true" doc:name="File"/>
+    <file:connector name="File2" outputPattern="Test.csv" writeToDirectory="src/main/resources/out" readFromDirectory="src/main/resources/in/batch" autoDelete="false" streaming="true" validateConnections="true" doc:name="File"/>
+    
+    <flow name="flow-data-sfdc-wave-flow">
+        <file:inbound-endpoint path="src/main/resources/in/flow" moveToDirectory="src/main/resources/out" responseTimeout="10000" doc:name="File" connector-ref="File" tracking:enable-default-events="true"/>
+        <dw:transform-message doc:name="Transform Message" metadata:id="73de8061-d968-446b-abd5-f036c782003f">
+            <dw:input-payload mimeType="application/csv"/>
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload map ((payload01 , indexOfPayload01) -> {
+	Id: payload01.Id,
+	Year: payload01.Year,
+	Currencies: (payload01.Currencies splitBy ";") as :array,
+	Distance: payload01.Distance,
+	CreationDate: payload01.CreationDate as :date{format: "yyyy/MM/dd"},
+	Country: payload01.Country,
+	City: payload01.City
+})]]></dw:set-payload>
+        </dw:transform-message>
+        <logger level="INFO" doc:name="Logger"/>
+        <sfdc-analytics:upload-external-data-into-new-data-set-and-start-processing config-ref="Salesforce_Analytics_Cloud__Basic_authentication" type="metadata.json:RELATIVE" operation="APPEND" description="${dataSet.Description}" label="${dataSet.Label}" dataSetName="${dataSet.Name}" edgemartContainer="${dataSet.ContainerName}" notificationSent="ALWAYS" notificationEmail="${notification.email}" doc:name="Salesforce Analytics Cloud">
+            <sfdc-analytics:payload ref="#[payload]"/>
+        </sfdc-analytics:upload-external-data-into-new-data-set-and-start-processing>
+       
+    	
+    </flow>
+    <batch:job name="batch-data-sfdc-wave-flow">
+        <batch:input>
+            <file:inbound-endpoint path="src/main/resources/in/batch" moveToDirectory="src/main/resources/out" connector-ref="File2" responseTimeout="10000" doc:name="File"/>
+            <enricher source="#[payload]" target="#[variable:dataSetId]" doc:name="Message Enricher">
+                <sfdc-analytics:create-data-set config-ref="Salesforce_Analytics_Cloud__Basic_authentication" operation="OVERWRITE" description="${dataSet.Description}" label="${dataSet.Label}" dataSetName="${dataSet.Name}" edgemartContainer="${dataSet.ContainerName}" notificationSent="ALWAYS" type="metadata.json:RELATIVE" doc:name="Salesforce Analytics Cloud" notificationEmail="${notification.email}"/>
+            </enricher>
+            <dw:transform-message doc:name="Transform Message" metadata:id="041c53ad-9984-4e66-8aff-e2de05c81dcd">
+                <dw:input-payload mimeType="application/csv"/>
+                <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+payload map ((payload01 , indexOfPayload01) -> {
+	Id: payload01.Id,
+	Year: payload01.Year,
+	Currencies: (payload01.Currencies splitBy ";") as :array,
+	Distance: payload01.Distance,
+	CreationDate: payload01.CreationDate as :date{format: "yyyy/MM/dd"},
+	Country: payload01.Country,
+	City: payload01.City
+})]]></dw:set-payload>
+            </dw:transform-message>
+        </batch:input>
+        <batch:process-records>
+            <batch:step name="Batch_Step">
+                <batch:commit size="5" doc:name="Batch Commit">
+                    <sfdc-analytics:upload-external-data config-ref="Salesforce_Analytics_Cloud__Basic_authentication" type="metadata.json:RELATIVE" dataSetId="#[variable:dataSetId]" doc:name="Salesforce Analytics Cloud">
+                        <sfdc-analytics:payload ref="#[payload]"/>
+                    </sfdc-analytics:upload-external-data>
+                </batch:commit>
+            </batch:step>
+        </batch:process-records>
+        <batch:on-complete>
+            <sfdc-analytics:start-data-processing config-ref="Salesforce_Analytics_Cloud__Basic_authentication" dataSetId="#[variable:dataSetId]" doc:name="Salesforce Analytics Cloud"/>
+        </batch:on-complete>
+    </batch:job>
+   
+    
+</mule>

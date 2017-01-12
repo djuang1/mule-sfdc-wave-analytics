@@ -1,0 +1,16 @@
+{
+    "inputMessageMetadata": {
+        "messagePayload": {
+            "connectorName": "#_custom_mule_metadata_type_#",
+            "typeId": "csv_data"
+        }
+    },
+    "outputMessageMetadata": {
+        "messagePayload": {
+            "connectorName": "Salesforce_Analytics_Cloud__Basic_authentication",
+            "typeId": "recordId"
+        }
+    },
+    "id": "25ff227e-43ef-4dcb-b5ed-57f89cb3ef34",
+    "version": "5.2.0.0"
+}
